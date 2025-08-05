@@ -21,18 +21,20 @@ async function findLinkTxtFolderId(advertiserId) {
       params: { advertiserId: advertiserId }
     };
     
-    console.log(`Wyszukiwanie folderu "${LINK_TXT_FOLDER_NAME}" dla reklamodawcy ID: ${advertiserId}...`);
+    // Wyszukujemy folder, który zawiera "link" w nazwie, bez względu na wielkość liter
+    const searchPattern = /link/i;
+    console.log(`Wyszukiwanie folderu zawierającego "link" dla reklamodawcy ID: ${advertiserId}...`);
     
     const response = await axios.get(API_URL_LIST_SETS, config);
 
     if (response.data && Array.isArray(response.data)) {
-        const linkTxtFolder = response.data.find(set => set.name === LINK_TXT_FOLDER_NAME);
+        const linkTxtFolder = response.data.find(set => searchPattern.test(set.name));
 
         if (linkTxtFolder) {
-          console.log(`Znaleziono folder "Link TXT" z ID: ${linkTxtFolder.creativeSetId}`);
+          console.log(`Znaleziono folder "${linkTxtFolder.name}" z ID: ${linkTxtFolder.creativeSetId}`);
           return linkTxtFolder.creativeSetId;
         } else {
-          console.error(`Nie znaleziono folderu "${LINK_TXT_FOLDER_NAME}" dla podanego reklamodawcy.`);
+          console.error(`Nie znaleziono folderu zawierającego "link" dla podanego reklamodawcy.`);
           return null;
         }
     } else {
@@ -45,7 +47,6 @@ async function findLinkTxtFolderId(advertiserId) {
     return null;
   }
 }
-
 // --- Funkcja do pobierania ID kategorii produktu z folderu ---
 async function getProductCategoryIdFromSet(creativeSetId) {
   try {
@@ -96,6 +97,7 @@ async function createNewSubfolder(advertiserId, parentCreativeSetId, folderName,
       return requestBody.creativeSetId;
     } else {
       console.error(`Błąd podczas tworzenia folderu "${folderName}".`);
+      if (error.response) console.error('Szczegóły błędu:', error.response.data);
       return null;
     }
   } catch (error) {
@@ -113,7 +115,7 @@ async function createLinkCreative(creativeData) {
       creativeId: uuidv4(),
       creativeSetId: creativeData.creativeSetId,
       name: creativeData.creativeName,
-      content: `LinkTXT - ${creativeData.creativeName}`,
+      content: '.',
       description: 'Automatycznie stworzona kreacja przez skrypt',
       targetUrl: creativeData.targetUrl,
       status: 'ACTIVE',
@@ -140,51 +142,107 @@ async function createLinkCreative(creativeData) {
   }
 }
 
-// --- Główna funkcja zarządzająca całym procesem ---
-async function runAutomation(advertiserId, creativeName, targetUrl) {
-  console.log('--- Rozpoczynam automatyzację tworzenia kreacji ---');
-  
-  // Krok 1: Znajdź ID folderu 'Link TXT'
-  const parentFolderId = await findLinkTxtFolderId(advertiserId);
-  if (!parentFolderId) {
-    console.log('Proces anulowany.');
-    return;
-  }
-  
-  // Krok 2: Pobierz ID kategorii produktu z folderu 'Link TXT'
-  const productCategoryId = await getProductCategoryIdFromSet(parentFolderId);
-  if (!productCategoryId) {
-      console.log('Proces anulowany.');
-      return;
-  }
+// --- NOWA, POPRAWIONA FUNKCJA DO ZNAJDOWANIA NAJWYŻSZEJ LICZBY W NAZWACH FOLDERÓW ---
+async function findHighestCreativeNumber(parentCreativeSetId, advertiserId) {
+    try {
+        const config = {
+            headers: { 'x-api-key': API_KEY },
+            params: {
+                creativeSetId: parentCreativeSetId,
+                advertiserId: advertiserId
+            }
+        };
 
-  // Krok 3: Utwórz nowy podfolder
-  const newFolderId = await createNewSubfolder(advertiserId, parentFolderId, creativeName, targetUrl, productCategoryId);
-  if (!newFolderId) {
-    console.log('Proces anulowany.');
-    return;
-  }
+        console.log(`Pobieranie listy podfolderów z Creative Set ID: ${parentCreativeSetId}...`);
+        
+        const response = await axios.get(API_URL_LIST_SETS, config);
 
-  // Krok 4: Utwórz kreację w nowym folderze
-  const myCreative = {
-    creativeName: creativeName,
-    creativeContent: `LinkTXT - ${creativeName}`,
-    creativeSetId: newFolderId,
-    targetUrl: targetUrl,
-  };
-  await createLinkCreative(myCreative);
+        if (response.data && Array.isArray(response.data)) {
+            let highestNumber = 0;
+            response.data.forEach(set => {
+                const match = set.name.match(/^(\d+)/);
+                if (match) {
+                    const number = parseInt(match[1], 10);
+                    if (number > highestNumber) {
+                        highestNumber = number;
+                    }
+                }
+            });
+            console.log(`Najwyższy znaleziony numer folderu to: ${highestNumber}`);
+            return highestNumber;
+        } else {
+            console.log('Nie znaleziono żadnych podfolderów, rozpoczynam od 0.');
+            return 0;
+        }
+    } catch (error) {
+        console.error('Błąd podczas pobierania podfolderów:', error.message);
+        if (error.response) console.error('Szczegóły błędu:', error.response.data);
+        return 0;
+    }
+}
 
-  console.log('--- Automatyzacja zakończona ---');
+// --- Główna funkcja zarządzająca całym procesem (ZAKTUALIZOWANA) ---
+async function runAutomation(advertiserId, creativeName, campaignPeriod, targetUrl) {
+    console.log('--- Rozpoczynam automatyzację tworzenia kreacji ---');
+
+    // Krok 1: Znajdź ID folderu 'Link TXT'
+    const parentFolderId = await findLinkTxtFolderId(advertiserId);
+    if (!parentFolderId) {
+        console.log('Proces anulowany.');
+        return;
+    }
+
+    // Krok 2: Znajdź najwyższy numer folderu i wygeneruj nową nazwę
+    const highestNumber = await findHighestCreativeNumber(parentFolderId, advertiserId);
+    const newCreativeNumber = highestNumber + 1;
+    
+    // Tworzenie nazwy folderu
+    let newCreativeFolderName;
+    if (campaignPeriod) {
+        newCreativeFolderName = `${newCreativeNumber} - ${creativeName} - ${campaignPeriod}`;
+    } else {
+        newCreativeFolderName = `${newCreativeNumber} - ${creativeName}`;
+    }
+    console.log(`Nowa nazwa folderu to: "${newCreativeFolderName}"`);
+
+    // Krok 3: Pobierz ID kategorii produktu z folderu 'Link TXT'
+    const productCategoryId = await getProductCategoryIdFromSet(parentFolderId);
+    if (!productCategoryId) {
+        console.log('Proces anulowany.');
+        return;
+    }
+
+    // Krok 4: Utwórz nowy podfolder
+    const newFolderId = await createNewSubfolder(advertiserId, parentFolderId, newCreativeFolderName, targetUrl, productCategoryId);
+    if (!newFolderId) {
+        console.log('Proces anulowany.');
+        return;
+    }
+
+    // Krok 5: Utwórz kreację w nowym folderze
+    const creativeNameWithPrefix = `LinkTXT - ${newCreativeFolderName}`;
+
+    const myCreative = {
+        creativeName: creativeNameWithPrefix, // Nowa zmienna z prefiksem
+        creativeContent: creativeNameWithPrefix,
+        creativeSetId: newFolderId,
+        targetUrl: targetUrl,
+    };
+    await createLinkCreative(myCreative);
+
+    console.log('--- Automatyzacja zakończona ---');
 }
 
 // --- Uruchomienie skryptu ---
 const advertiserId = process.argv[2];
 const creativeName = process.argv[3];
-const targetUrl = process.argv[4];
+const campaignPeriod = process.argv[4];
+const targetUrl = process.argv[5];
 
+// Walidacja - upewniamy się, że wymagane argumenty zostały podane
 if (!advertiserId || !creativeName || !targetUrl) {
   console.error('Błąd: Brakuje wymaganych argumentów.');
-  console.log('Użycie: node creativeCreator.js <ID_reklamodawcy> <nazwa_kreacji> <URL_docelowy>');
+  console.log('Użycie: node creativeCreator.js <ID_reklamodawcy> "<nazwa_kreacji>" "[opcjonalny_okres_kampanii]" "<URL_docelowy>"');
 } else {
-  runAutomation(advertiserId, creativeName, targetUrl);
+  runAutomation(advertiserId, creativeName, campaignPeriod, targetUrl);
 }
