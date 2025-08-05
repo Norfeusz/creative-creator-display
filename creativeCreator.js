@@ -185,6 +185,20 @@ async function findHighestCreativeNumber(parentCreativeSetId, advertiserId) {
 async function runAutomation(advertiserId, creativeName, campaignPeriod, targetUrl) {
     console.log('--- Rozpoczynam automatyzację tworzenia kreacji ---');
 
+    // Sprawdzamy, czy w podanym URL-u jest już znak zapytania
+    let urlSeparator = '?';
+    if (targetUrl.includes('?')) {
+        urlSeparator = '&';
+    }
+
+    // Dodajemy parametry UTM, jeśli to konieczne
+    let finalTargetUrl = targetUrl;
+    if (advertiserId === '76829') {
+        const urlParams = `${urlSeparator}utm_source=pp&utm_medium=cps&utm_campaign=SalesMedia&utm_content=#{PARTNER_ID}`;
+        finalTargetUrl = `${targetUrl}${urlParams}`;
+        console.log(`Dla reklamodawcy ${advertiserId}, URL został zmodyfikowany na: ${finalTargetUrl}`);
+    }
+
     // Krok 1: Znajdź ID folderu 'Link TXT'
     const parentFolderId = await findLinkTxtFolderId(advertiserId);
     if (!parentFolderId) {
@@ -196,7 +210,6 @@ async function runAutomation(advertiserId, creativeName, campaignPeriod, targetU
     const highestNumber = await findHighestCreativeNumber(parentFolderId, advertiserId);
     const newCreativeNumber = highestNumber + 1;
     
-    // Tworzenie nazwy folderu
     let newCreativeFolderName;
     if (campaignPeriod) {
         newCreativeFolderName = `${newCreativeNumber} - ${creativeName} - ${campaignPeriod}`;
@@ -213,7 +226,7 @@ async function runAutomation(advertiserId, creativeName, campaignPeriod, targetU
     }
 
     // Krok 4: Utwórz nowy podfolder
-    const newFolderId = await createNewSubfolder(advertiserId, parentFolderId, newCreativeFolderName, targetUrl, productCategoryId);
+    const newFolderId = await createNewSubfolder(advertiserId, parentFolderId, newCreativeFolderName, finalTargetUrl, productCategoryId);
     if (!newFolderId) {
         console.log('Proces anulowany.');
         return;
@@ -223,10 +236,10 @@ async function runAutomation(advertiserId, creativeName, campaignPeriod, targetU
     const creativeNameWithPrefix = `LinkTXT - ${newCreativeFolderName}`;
 
     const myCreative = {
-        creativeName: creativeNameWithPrefix, // Nowa zmienna z prefiksem
-        creativeContent: creativeNameWithPrefix,
+        creativeName: creativeNameWithPrefix,
+        creativeContent: '.',
         creativeSetId: newFolderId,
-        targetUrl: targetUrl,
+        targetUrl: finalTargetUrl,
     };
     await createLinkCreative(myCreative);
 
