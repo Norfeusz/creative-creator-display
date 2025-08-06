@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', (event) => {
     
     selectElement.addEventListener('change', toggleAdvertiserIdField);
     toggleAdvertiserIdField();
-    
+
 submitBtn.addEventListener('click', async () => {
     messageContainer.textContent = '';
     messageContainer.className = '';
@@ -37,7 +37,7 @@ submitBtn.addEventListener('click', async () => {
         if (response.ok) {
             messageContainer.textContent = result.message;
             messageContainer.classList.add('message', 'success');
-            // Zamiast resetować cały formularz, czyścimy tylko wybrane pola
+            // czyścimy wybrane pola
             document.getElementById('creativeName').value = '';
             document.getElementById('campaignPeriod').value = '';
             document.getElementById('targetUrl').value = '';
